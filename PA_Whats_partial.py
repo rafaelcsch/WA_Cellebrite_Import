@@ -2,10 +2,10 @@
 
 
 # problemas
-# - verificar como sao adicionados os contatos em extrações normais
+# - verificar como sao adicionados os contatos em extrações normais - ok corrigido
 # - nao faz parsing de grupos
-# - nao faz parsing de mensagens de sistema - actions novas
-# - testar com emojis nas mensagens e nomes
+# - nao faz parsing de mensagens de sistema - adicionado para qualquer mensagem que nao está no padrão - ok
+# - testar com emojis nas mensagens e nomes - primeiros testes com nomes de usuario - ok
 # - outros idiomas - ingles principalmente para dual app ou mods
 
 
@@ -13,7 +13,7 @@
 from physical import *
 import time, codecs, time, sys, re, os
 
-class SPIWhatsAppEmailsParser(object):
+class WhatsAppEmailsParser(object):
 	chats = []
 	contacts = {}
 	usuario = UserAccount()
@@ -35,14 +35,15 @@ class SPIWhatsAppEmailsParser(object):
 	
 	#acoes
 	action_strings = {
-	"admin": "administrador",
-	"change_icon": "icone do grupo alterado",
-	"change_subject": "alterado o topico",
-	"added": "adicionado",
+	"admin": "admin",
+	"change_icon": "mudou a imagem deste grupo",
+	"change_subject": "mudou o nome de",
+	"added": "adicionou",
 	"left": "saiu",
-	"removed": "removido"
+	"removed": "removeu",
+	"crypto": "criptografia de ponta a ponta",
+	"temporary" : "ativou as mensagens temporárias"
 	}
-	
 	
 	#objeto elemento do chat
 	class WhatsAppChatElement:
@@ -86,18 +87,12 @@ class SPIWhatsAppEmailsParser(object):
 	
 	#ok - ver: cria numero de telefone como low confidence
 	def createContact(self, number, name): 		
-		uid = UserID()
-		uid.Deleted = DeletedState.Intact
-		uid.Category.Value = self.APP_NAME+ " Id"
-		#uid.Category.Value = 'WhatsApp (EmailExport) Id'
-		uid.Value.Value = name
 		contact = Contact()
-		contact.Account.Value = number
+		contact.Account.Value = self.usuario.Username.Value
 		contact.Name.Value = name
 		contact.Deleted = DeletedState.Intact
 		contact.Source.Value = self.APP_NAME
-		#contact.Source.Value = 'WhatsApp (EmailExport)'
-		contact.Entries.Add(uid)
+		contact.InteractionStatuses.Add(ContactType.ChatParticipant)
 		ph = PhoneNumber()
 		ph.Deleted = DeletedState.Intact
 		ph.Value.Value = number.split("@")[0][2:]
@@ -127,7 +122,7 @@ class SPIWhatsAppEmailsParser(object):
 	    #processa uma linha - recebe a si e a linha para decodificar
 	    def parse_message(self,str):
 	        #regex de patterns de mensagens e datas
-	        for pattern in map(lambda x : x + SPIWhatsAppEmailsParser.message_pattern, SPIWhatsAppEmailsParser.date_patterns.values()):
+	        for pattern in map(lambda x : x + WhatsAppEmailsParser.message_pattern, WhatsAppEmailsParser.date_patterns.values()):
 	            m = re.search(pattern, str)
 	            if m:
 	                #print ('MSG: %s' % m.group('datetime'))
@@ -137,18 +132,18 @@ class SPIWhatsAppEmailsParser(object):
 	                return (m.group('datetime'), m.group('name'), m.group('message'), None)
 	        
 	        # if code comes here, message is continuation or action
-	        for pattern in map(lambda x:x+SPIWhatsAppEmailsParser.action_pattern, SPIWhatsAppEmailsParser.date_patterns.values()):
+	        for pattern in map(lambda x : x + WhatsAppEmailsParser.action_pattern, WhatsAppEmailsParser.date_patterns.values()):
 	            m = re.search(pattern, str)
-	            #se encontrou o padrao da mensagem
 	            if m:
-	                if any(action_string in m.group('action') for action_string in SPIWhatsAppEmailsParser.action_strings.values()):
-	                    for pattern in map(lambda x: "(?P<name>(.*?))"+x+"(.*?)", SPIWhatsAppEmailsParser.action_strings.values()):
-	                        m_action = re.search(pattern, m.group('action'))
-	                        if m_action:
-	                            return (m.group('datetime'), m_action.group('name'), None, m.group('action'))
-	                    
-	                    print("[erro em capturar a acao - necessario verificar] - %s\n" %(m.group('action')))
-	                    return (m.group('datetime'), None, None, m.group('action'))
+	                #se encontrou o padrao de data mensagem
+	                for pattern in map(lambda x: x, WhatsAppEmailsParser.action_strings.values()):
+	                    m_action = re.search(pattern, m.group('action'))
+	                    #if m_action:
+	                    #    print(m_action)
+	                    #    print("mensagem de sistema encontrada")
+	                    return (m.group('datetime'), "System Message", None, m.group('action'))
+	                    #print("[erro em capturar a acao - necessario verificar] - %s\n" %(m.group('action')))
+	                    #return (m.group('datetime'), None, None, m.group('action'))
 	        
 	        #controle
 	        #print ("continuacao ou nao esta no padrao")
@@ -159,7 +154,7 @@ class SPIWhatsAppEmailsParser(object):
 	    def process(self, content):
 	        messages = []
 	        #cria objeto vazio - datetime, name, message, action
-	        null_chat = SPIWhatsAppEmailsParser.WhatsAppChatElement('', '', '', '')
+	        null_chat = WhatsAppEmailsParser.WhatsAppChatElement('', '', '', '')
 	        
 	        #anexa a mensagens
 	        messages.append(null_chat)
@@ -179,7 +174,7 @@ class SPIWhatsAppEmailsParser(object):
 	                    messages[-1].message = parsed[2]
 	            else:
 	                #print ("parsed message")
-	                messages.append(SPIWhatsAppEmailsParser.WhatsAppChatElement(parsed[0],parsed[1],parsed[2], parsed[3]))			
+	                messages.append(WhatsAppEmailsParser.WhatsAppChatElement(parsed[0],parsed[1],parsed[2], parsed[3]))			
 	            row_count = row_count + 1
 	            #print(parsed)
 	        #print ('Total: %d' % row_count)
@@ -204,6 +199,9 @@ class SPIWhatsAppEmailsParser(object):
 			
 			#usuario sempre eh um participante do chat
 			chat_participantes[self.usuario.Name.Value] = self.usuario.Username.Value
+			user_party = Party()
+			user_party.Identifier.Value = self.usuario.Username.Value
+			user_party.Name.Value = self.usuario.Name.Value
 			
 			#novo objeto chat, estado nao excluido
 			chat = Chat()
@@ -213,7 +211,7 @@ class SPIWhatsAppEmailsParser(object):
 			rchat_name_parser = re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/CHAT_(?P<Numero>[0-9]*@s\.whatsapp\.net)\.txt', f.AbsolutePath)
 			chat.Id.Value = (rchat_name_parser.group('Numero')).split("@")[0][2:]
 			chat.Source.Value = "WhatsApp (EmailExport)"
-			
+			chat.Participants.Add(user_party)
 			
 			ws_parser = self.WhatsApp_Email_Parser()
 			#carrega conteudo do arquivo e divide por linhas
@@ -271,27 +269,27 @@ class SPIWhatsAppEmailsParser(object):
 					#se eh uma acao	
 					im.Body.Value = ("( %s )" % m.action)
 				party = Party()
-				#se esse remetente nao esta inserido nos participantes ainda, entao insere
-				if m.name not in chat_participantes:
-				    chat_participantes[m.name] = rchat_name_parser.group('Numero')
-				    chat.Participants.Add(party)
-				
-				party.Identifier.Value = chat_participantes[m.name]
 				party.Name.Value = m.name
+				#se nao eh mensagem de sistema
+				if not m.name == "System Message":
+				    #se esse remetente nao esta inserido nos participantes ainda, entao insere
+				    if m.name not in chat_participantes:
+				        chat_participantes[m.name] = rchat_name_parser.group('Numero')
+				        chat.Participants.Add(party)
+				    party.Identifier.Value = chat_participantes[m.name]
 				#print self.usuario.Name.Value
 				if m.name == self.usuario.Name.Value:
-				    party.Role.Value = PartyRole.To
+				    #party.Role.Value = PartyRole.To
 				    im.From.Value = party
 				    im.Direction = ModelDirections.Outgoing
 				    #print("mensagem do usuario")
 				else:
-				    party.Role.Value = PartyRole.From
+				    #party.Role.Value = PartyRole.From
 				    im.From.Value = party
 				    im.Direction = ModelDirections.Incoming
 				
 				#data da mensagem
 				im.TimeStamp.Value = m.datetime
-				#o que significa?
 				if im.TimeStamp.Value < ancient_date:
 					ancient_date = im.TimeStamp.Value
 				if im.TimeStamp.Value > recent_date:
@@ -326,14 +324,11 @@ class SPIWhatsAppEmailsParser(object):
     
     
 #inicio do script
-print ("Starting")
+print ("Starting whatsapp export script")
 #para indicativo final do script
 startTime = time.time()
 
 #calling the parser for results
-results = SPIWhatsAppEmailsParser().parse()
+results = WhatsAppEmailsParser().parse()
 ds.Models.AddRange(results)
 print ("Finished - The script took %s seconds !" % format(time.time() - startTime))
-
-
-
