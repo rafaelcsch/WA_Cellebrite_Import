@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 
+"""
+forked from spi_ufed_whatsapp_email.py - 2018 Alberto Magno <alberto.magno@gmail.com> 
+Version: 1.0
+Revised Date: 19/01/2022
+Author: Rafael Schneider <rafaelschneider@igp.sc.gov.br>
+License: MIT
 
-# problemas
-# - verificar como sao adicionados os contatos em extrações normais - ok corrigido
-# - nao faz parsing de grupos
-# - nao faz parsing de mensagens de sistema - adicionado para qualquer mensagem que nao está no padrão - ok
-# - testar com emojis nas mensagens e nomes - primeiros testes com nomes de usuario - ok
+# known bugs
+# - caracteres especiais em nome de arquivos - ()$
 # - outros idiomas - ingles principalmente para dual app ou mods
-
+# - adicionar arquivo .txt como fonte da mensagem instantanea
+# - code refactoring
+"""
 
 
 from physical import *
@@ -83,6 +88,8 @@ class WhatsAppEmailsParser(object):
 		self.parseAccount()
 		#chama decodificacao das mensagens
 		self.decode_messages()
+		#chama decodificacao das mensagens de grupos
+		self.decode_groups_messages()
 		return self.chats
 	
 	#ok - ver: cria numero de telefone como low confidence
@@ -96,7 +103,13 @@ class WhatsAppEmailsParser(object):
 		ph = PhoneNumber()
 		ph.Deleted = DeletedState.Intact
 		ph.Value.Value = number.split("@")[0][2:]
+		ph.Category.Value = 'Telefone'
 		contact.Entries.Add(ph)
+		uid = UserID()
+		uid.Category.Value = 'WhatsApp User Id'
+		uid.Value.Value = number
+		uid.Deleted = DeletedState.Intact
+		contact.Entries.Add(uid)
 		#a ver esse parametro
 		self.contacts[contact.Name.Value] = contact.Account.Value
 		ds.Models[Contact].Add(contact)
@@ -189,7 +202,7 @@ class WhatsAppEmailsParser(object):
 		node = ds.FileSystems[0]
 		for f in node.Search ('/.*?/CHAT_[0-9]*@s\.whatsapp\.net\.txt'):
 			n= re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/CHAT_(?P<Numero>[0-9]*@s\.whatsapp\.net)\.txt', f.AbsolutePath)    #ok
-			print (n.group('Numero'), n.group('Name'))
+			#print (n.group('Numero'), n.group('Name'))
 			self.createContact(n.group('Numero'), n.group('Name'))
 			arquivos.append(f)  #ok
 		
@@ -210,8 +223,15 @@ class WhatsAppEmailsParser(object):
 			#match com nome do arquivo
 			rchat_name_parser = re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/CHAT_(?P<Numero>[0-9]*@s\.whatsapp\.net)\.txt', f.AbsolutePath)
 			chat.Id.Value = (rchat_name_parser.group('Numero')).split("@")[0][2:]
-			chat.Source.Value = "WhatsApp (EmailExport)"
+			chat.Source.Value = self.APP_NAME
 			chat.Participants.Add(user_party)
+			
+			#adiciona o outro participante
+			second_party = Party()
+			second_party.Name.Value = rchat_name_parser.group('Name')
+			chat_participantes[rchat_name_parser.group('Name')] = rchat_name_parser.group('Numero')
+			second_party.Identifier.Value = chat_participantes[rchat_name_parser.group('Name')]
+			chat.Participants.Add(second_party)
 			
 			ws_parser = self.WhatsApp_Email_Parser()
 			#carrega conteudo do arquivo e divide por linhas
@@ -228,6 +248,8 @@ class WhatsAppEmailsParser(object):
 				#print (m)
 				im = InstantMessage()
 				im.Deleted = DeletedState.Intact
+				#link para fonte - pendente
+				#im.SourceInfo = ModelSourceInfo(None, f)
 				#se nao eh acao
 				if m.action is None:
 					#corpo da mensagem recebe mensagem
@@ -258,7 +280,7 @@ class WhatsAppEmailsParser(object):
 							att.Data.Source = anexo.Data
 							im.Attachments.Add(att)
 						if(len(controle) == 0):
-							print ("!!!WARNING!!! Attachment file not found: %s" % anexo_parser.group(1))
+							print ("!!!WARNING!!! Attachment file not found: %s : chat com %s" % (anexo_parser.group(1), rchat_name_parser.group('Name')))
 					
 					#midia nao exportada ou ausente
 					anexo_ausente = re.match(r'(<M(.*)dia omitida>)|(<Arquivo de m(.*)dia oculto>)|(<media omitted>)', m.message)
@@ -301,6 +323,139 @@ class WhatsAppEmailsParser(object):
 			#print("chat pronto")
 			self.chats.append(chat)
 	
+		#decodifica as mensagens de grupos
+	def decode_groups_messages(self):
+		#pega a lista de arquivos com match de nome
+		arquivos = []
+		node = ds.FileSystems[0]
+		for f in node.Search ('/.*?/CHAT_[0-9]*-[0-9]*@g.us.txt'):
+			n= re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/CHAT_[0-9]*-[0-9]*@g.us.txt', f.AbsolutePath) #ok
+			#nome do grupo
+			#print (n.group('Name'))
+			arquivos.append(f)  #ok
+		
+		for f in arquivos:
+			#controla os participantes deste chat
+			chat_participantes = {}
+			
+			#usuario sempre eh um participante do chat
+			chat_participantes[self.usuario.Name.Value] = self.usuario.Username.Value
+			user_party = Party()
+			user_party.Identifier.Value = self.usuario.Username.Value
+			user_party.Name.Value = self.usuario.Name.Value
+			
+			#novo objeto chat, estado nao excluido
+			chat = Chat()
+			chat.Deleted = DeletedState.Intact
+			
+			#match com nome do arquivo
+			rchat_name_parser = re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/CHAT_(?P<Numero>[0-9]*-[0-9]*@g.us).txt', f.AbsolutePath)
+			chat.Id.Value = (rchat_name_parser.group('Numero'))
+			chat.Name.Value = (rchat_name_parser.group('Name'))
+			chat.Source.Value = self.APP_NAME
+			chat.Participants.Add(user_party)
+			
+			ws_parser = self.WhatsApp_Email_Parser()
+			#carrega conteudo do arquivo e divide por linhas
+			text = f.Data.read().decode('utf-8-sig', 'ignore')
+			content = text.splitlines()
+			
+			ancient_date = time.localtime() #today
+			recent_date = TimeStamp.FromUnixTime(0) # pre nintendo era
+			
+			#print("arquivo")
+			#testando aqui
+			for m in ws_parser.process(content):
+				#print("foi uma mensagem")
+				#print (m)
+				im = InstantMessage()
+				im.Deleted = DeletedState.Intact
+				#link para fonte - pendente
+				#im.SourceInfo.Nodes = f
+				#se nao eh acao
+				if m.action is None:
+					#corpo da mensagem recebe mensagem
+					im.Body.Value = m.message
+					#verifica se tem anexo
+					anexo_parser = re.match(r'(.*)\s\(arquivo anexado\)'.decode('UTF-8', 'ignore'), m.message)
+					#print m.message
+					#.{1}(.*)\s\(arquivo anexado\)
+					if not anexo_parser is None: #has attachement
+						#print(anexo_parser.group(1))
+						att = Attachment()
+						nome_anexo = ''
+						#funcao usada em caso de caracter especial exportado antes do nome do arquivo.-  impede vincular o anexo
+						#print anexo_parser.group(1).find('‎') 
+						if anexo_parser.group(1).find('‎') < 0:
+						    nome_anexo = anexo_parser.group(1)
+						else:
+						    nome_anexo = anexo_parser.group(1)[1:]
+						
+						att.Filename.Value = nome_anexo
+						#print (att.Filename.Value)
+						att.Deleted = DeletedState.Intact
+						#procura arquivo no projeto - necessario testar no PA
+						controle = []
+						for anexo in node.Search (att.Filename.Value):
+							#print (anexo.AbsolutePath)
+							controle.append(anexo)
+							att.Data.Source = anexo.Data
+							im.Attachments.Add(att)
+						if(len(controle) == 0):
+							print ("!!!WARNING!!! Attachment file not found: %s : chat com %s" % (anexo_parser.group(1), rchat_name_parser.group('Name')))
+					
+					#midia nao exportada ou ausente
+					anexo_ausente = re.match(r'(<M(.*)dia omitida>)|(<Arquivo de m(.*)dia oculto>)|(<media omitted>)', m.message)
+					if not anexo_ausente is None: 
+						#print ("anexo oculto")
+						im.Body.Value = im.Body.Value+" -<O anexo nao foi localizado no dispositivo>"
+				else:
+					#se eh uma acao	
+					im.Body.Value = ("( %s )" % m.action)
+				party = Party()
+				party.Name.Value = m.name
+				#se nao eh mensagem de sistema
+				if not m.name == "System Message":
+				    #se esse remetente nao esta inserido nos participantes ainda, entao insere
+				    if m.name not in chat_participantes:
+				        #percorre os contatos pelo nome do participante
+				        in_contacts = 0
+				        for contato in ds.Models[Contact]:
+				            if contato.Name.Value == m.name:
+				                chat_participantes[m.name] = contato.Entries[1].Value.Value
+				                in_contacts = 1
+				                break
+				        if in_contacts == 0:
+				            #neste caso nao ha numero
+				            chat_participantes[m.name] = ''
+				        chat.Participants.Add(party)
+				    party.Identifier.Value = chat_participantes[m.name]
+				#print self.usuario.Name.Value
+				if m.name == self.usuario.Name.Value:
+				    #party.Role.Value = PartyRole.To
+				    im.From.Value = party
+				    im.Direction = ModelDirections.Outgoing
+				    #print("mensagem do usuario")
+				else:
+				    #party.Role.Value = PartyRole.From
+				    im.From.Value = party
+				    im.Direction = ModelDirections.Incoming
+				
+				#data da mensagem
+				im.TimeStamp.Value = m.datetime
+				if im.TimeStamp.Value < ancient_date:
+					ancient_date = im.TimeStamp.Value
+				if im.TimeStamp.Value > recent_date:
+					recent_date = im.TimeStamp.Value 
+				
+				chat.Messages.Add(im)
+			chat.StartTime.Value = ancient_date
+			chat.LastActivity.Value = recent_date
+			#print("chat pronto")
+			self.chats.append(chat)
+	
+	
+	
 	def parseAccount(self):
 		node = ds.FileSystems[0]
 		nome = ''
@@ -332,3 +487,6 @@ startTime = time.time()
 results = WhatsAppEmailsParser().parse()
 ds.Models.AddRange(results)
 print ("Finished - The script took %s seconds !" % format(time.time() - startTime))
+
+
+
