@@ -8,8 +8,9 @@ Author: Rafael Schneider <rafaelschneider@igp.sc.gov.br>
 License: MIT
 
 # known bugs
-# - caracteres especiais em nome de arquivos - ()$
 # - outros idiomas - ingles principalmente para dual app ou mods
+# - melhoria no formato da data
+# - anexos .vcf (compatilhamento de contato) - adicionar como contato compartilhado ( melhor visualização no PA)
 # - adicionar arquivo .txt como fonte da mensagem instantanea
 # - code refactoring
 """
@@ -76,6 +77,11 @@ class WhatsAppEmailsParser(object):
 	        self.message = message
 	        self.action = action
 	
+	def remove_regex(self, text):
+	    chars = "({[&#*$+^]})"
+	    for c in chars:
+	        text = text.replace(c, "\\" + c)
+	    return text
 	
 	#construtor
 	def __init__(self):
@@ -110,11 +116,10 @@ class WhatsAppEmailsParser(object):
 		uid.Value.Value = number
 		uid.Deleted = DeletedState.Intact
 		contact.Entries.Add(uid)
-		#a ver esse parametro
 		self.contacts[contact.Name.Value] = contact.Account.Value
 		ds.Models[Contact].Add(contact)
 	
-	def createUserAccount(self, number, name, app):
+	def createUserAccount(self, number, name, app, me):
 		self.APP_NAME = app + ' (EmailExport)'
 		ua = UserAccount()
 		ua.Name.Value = name
@@ -124,8 +129,12 @@ class WhatsAppEmailsParser(object):
 		ph = PhoneNumber()
 		ph.Deleted = DeletedState.Intact
 		ph.Value.Value = number
+		ph.Category.Value = 'Telefone'
 		ua.Entries.Add(ph)
-		#a ver esse parametro
+		if me != None:
+		    foto = ContactPhoto()
+		    foto.PhotoNode.Value = me
+		    ua.Photos.Add(foto)
 		self.usuario = ua
 		ds.Models.Add(ua)
 	
@@ -255,7 +264,7 @@ class WhatsAppEmailsParser(object):
 					#corpo da mensagem recebe mensagem
 					im.Body.Value = m.message
 					#verifica se tem anexo
-					anexo_parser = re.match(r'(.*)\s\(arquivo anexado\)'.decode('UTF-8', 'ignore'), m.message)
+					anexo_parser = re.match(r'(.*)\s\(arquivo anexado\)|(.*)\s\(file attached\)'.decode('UTF-8', 'ignore'), m.message)
 					#print m.message
 					#.{1}(.*)\s\(arquivo anexado\)
 					if not anexo_parser is None: #has attachement
@@ -274,13 +283,15 @@ class WhatsAppEmailsParser(object):
 						att.Deleted = DeletedState.Intact
 						#procura arquivo no projeto - necessario testar no PA
 						controle = []
-						for anexo in node.Search (att.Filename.Value):
+						#for anexo in node.Search (att.Filename.Value):
+						for anexo in node.Search (self.remove_regex(f.Parent.Name) + '/' + self.remove_regex(att.Filename.Value)):
 							#print (anexo.AbsolutePath)
 							controle.append(anexo)
 							att.Data.Source = anexo.Data
 							im.Attachments.Add(att)
 						if(len(controle) == 0):
 							print ("!!!WARNING!!! Attachment file not found: %s : chat com %s" % (anexo_parser.group(1), rchat_name_parser.group('Name')))
+							#print (self.remove_regex(f.Parent.Name) + '/' + self.remove_regex(att.Filename.Value))
 					
 					#midia nao exportada ou ausente
 					anexo_ausente = re.match(r'(<M(.*)dia omitida>)|(<Arquivo de m(.*)dia oculto>)|(<media omitted>)', m.message)
@@ -396,7 +407,8 @@ class WhatsAppEmailsParser(object):
 						att.Deleted = DeletedState.Intact
 						#procura arquivo no projeto - necessario testar no PA
 						controle = []
-						for anexo in node.Search (att.Filename.Value):
+						#for anexo in node.Search (att.Filename.Value):
+						for anexo in node.Search (self.remove_regex(f.Parent.Name) + '/' + self.remove_regex(att.Filename.Value)):
 							#print (anexo.AbsolutePath)
 							controle.append(anexo)
 							att.Data.Source = anexo.Data
@@ -461,6 +473,7 @@ class WhatsAppEmailsParser(object):
 		nome = ''
 		app = ''
 		tel = ''
+		me = None
 		for f in node.Search ('Conta.txt'):
 			text = f.Data.read().decode('utf-8-sig', 'ignore')
 			content = text.splitlines()
@@ -475,7 +488,9 @@ class WhatsAppEmailsParser(object):
 			    else:
 			        print('erro ao criar a conta do usuario')
 			        return
-			self.createUserAccount(tel, nome, app)
+			for pic in node.Search ('me.jpg'):
+			    me = pic
+			self.createUserAccount(tel, nome, app, me)
     
     
 #inicio do script
@@ -487,6 +502,3 @@ startTime = time.time()
 results = WhatsAppEmailsParser().parse()
 ds.Models.AddRange(results)
 print ("Finished - The script took %s seconds !" % format(time.time() - startTime))
-
-
-
