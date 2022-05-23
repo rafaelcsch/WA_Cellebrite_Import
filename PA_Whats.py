@@ -3,16 +3,9 @@
 """
 forked from spi_ufed_whatsapp_email.py - 2018 Alberto Magno <alberto.magno@gmail.com> 
 Version: 1.0
-Revised Date: 19/01/2022
 Author: Rafael Schneider <rafaelschneider@igp.sc.gov.br>
 License: MIT
 
-# known bugs
-# - outros idiomas - ingles principalmente para dual app ou mods
-# - melhoria no formato da data
-# - anexos .vcf (compatilhamento de contato) - adicionar como contato compartilhado ( melhor visualização no PA)
-# - adicionar arquivo .txt como fonte da mensagem instantanea
-# - code refactoring
 """
 
 
@@ -251,7 +244,6 @@ class WhatsAppEmailsParser(object):
 			recent_date = TimeStamp.FromUnixTime(0) # pre nintendo era
 			
 			#print("arquivo")
-			#testando aqui
 			for m in ws_parser.process(content):
 				#print("foi uma mensagem")
 				#print (m)
@@ -264,7 +256,7 @@ class WhatsAppEmailsParser(object):
 					#corpo da mensagem recebe mensagem
 					im.Body.Value = m.message
 					#verifica se tem anexo
-					anexo_parser = re.match(r'(.*)\s\(arquivo anexado\)|(.*)\s\(file attached\)'.decode('UTF-8', 'ignore'), m.message)
+					anexo_parser = re.match(r'(.*)\s\(arquivo anexado\)|(.*)\s\(file attached\)'.decode('iso-8859-1', 'ignore'), m.message)
 					#print m.message
 					#.{1}(.*)\s\(arquivo anexado\)
 					if not anexo_parser is None: #has attachement
@@ -289,6 +281,7 @@ class WhatsAppEmailsParser(object):
 							controle.append(anexo)
 							att.Data.Source = anexo.Data
 							im.Attachments.Add(att)
+							break
 						if(len(controle) == 0):
 							print ("!!!WARNING!!! Attachment file not found: %s : chat com %s" % (anexo_parser.group(1), rchat_name_parser.group('Name')))
 							#print (self.remove_regex(f.Parent.Name) + '/' + self.remove_regex(att.Filename.Value))
@@ -375,7 +368,6 @@ class WhatsAppEmailsParser(object):
 			recent_date = TimeStamp.FromUnixTime(0) # pre nintendo era
 			
 			#print("arquivo")
-			#testando aqui
 			for m in ws_parser.process(content):
 				#print("foi uma mensagem")
 				#print (m)
@@ -413,6 +405,7 @@ class WhatsAppEmailsParser(object):
 							controle.append(anexo)
 							att.Data.Source = anexo.Data
 							im.Attachments.Add(att)
+							break
 						if(len(controle) == 0):
 							print ("!!!WARNING!!! Attachment file not found: %s : chat com %s" % (anexo_parser.group(1), rchat_name_parser.group('Name')))
 					
@@ -475,7 +468,7 @@ class WhatsAppEmailsParser(object):
 		tel = ''
 		me = None
 		for f in node.Search ('Conta.txt'):
-			text = f.Data.read().decode('utf-8-sig', 'ignore')
+			text = f.Data.read().decode("iso-8859-1", 'ignore')
 			content = text.splitlines()
 			for row in content:
 			    r = re.match('USUARIO : (?P<name>.*)|TELEFONE : (?P<number>[0-9]*)|APLICATIVO : (?P<app>.*)', row)
