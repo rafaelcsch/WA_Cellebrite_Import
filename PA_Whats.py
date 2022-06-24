@@ -332,8 +332,9 @@ class WhatsAppEmailsParser(object):
 		#pega a lista de arquivos com match de nome
 		arquivos = []
 		node = ds.FileSystems[0]
-		for f in node.Search ('/.*?/CHAT_[0-9]*-[0-9]*@g.us.txt'):
-			n= re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/CHAT_[0-9]*-[0-9]*@g.us.txt', f.AbsolutePath) #ok
+		for f in node.Search ('/.*?/(CHAT_[0-9]*-[0-9]*@g.us.txt)|(CHAT_[0-9]*@g.us.txt)'):
+			#print (f.AbsolutePath)
+			n= re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/(CHAT_[0-9]*)|(CHAT_[0-9]*-[0-9]*)@g.us.txt', f.AbsolutePath) #ok
 			#nome do grupo
 			#print (n.group('Name'))
 			arquivos.append(f)  #ok
@@ -353,9 +354,10 @@ class WhatsAppEmailsParser(object):
 			chat.Deleted = DeletedState.Intact
 			
 			#match com nome do arquivo
-			rchat_name_parser = re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/CHAT_(?P<Numero>[0-9]*-[0-9]*@g.us).txt', f.AbsolutePath)
-			chat.Id.Value = (rchat_name_parser.group('Numero'))
+			rchat_name_parser = re.match(r'/Conversa do WhatsApp com (?P<Name>.*)/CHAT_(?P<Numero>[0-9]*)|(?P<Numero>[0-9]*-[0-9]*)@g.us.txt', f.AbsolutePath)
+			chat.Id.Value = (rchat_name_parser.group('Numero')) + "@g.us"
 			chat.Name.Value = (rchat_name_parser.group('Name'))
+			#print(chat.Name.Value)
 			chat.Source.Value = self.APP_NAME
 			chat.Participants.Add(user_party)
 			
